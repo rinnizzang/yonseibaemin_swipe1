@@ -1,0 +1,1525 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>배달의민족 - 주문하기 개선안 (스와이프형)</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Noto+Sans+KR:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    * {
+      box-sizing: border-box;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    body {
+      font-family: 'Noto Sans KR', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      background-color: #E5E7EB;
+      margin: 0;
+      padding: 0;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100dvh;
+      overflow: hidden;
+    }
+
+    /* 모바일 앱 컨테이너 */
+    .app-shell {
+      width: 100%;
+      max-width: 430px;
+      height: 100dvh;
+      background-color: #F4F5F7;
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      box-shadow: 0 20px 50px rgba(0, 0, 0, 0.12);
+    }
+
+    /* 스크롤 뷰포트: 활성 섹션이 항상 정가운데 오도록 충분한 상하 여백 확보 */
+    .scroll-viewport {
+      flex: 1;
+      overflow-y: auto;
+      overflow-x: hidden;
+      padding: 36vh 20px 44vh 20px;
+      scrollbar-width: none;
+      -ms-overflow-style: none;
+    }
+    .scroll-viewport::-webkit-scrollbar {
+      display: none;
+    }
+
+    /* 일반 카드 섹션 (배달 주소, 결제수단 체크박스, 추가 요청사항 입력, 영수증, 접힌 요약 카드) */
+    .section-card {
+      background-color: #FFFFFF;
+      border-radius: 18px;
+      box-shadow: 0 3px 14px rgba(0, 0, 0, 0.055);
+      border: 1px solid rgba(0, 0, 0, 0.04);
+      margin-bottom: 16px;
+      transition:
+        background-color 0.35s cubic-bezier(0.22, 1, 0.36, 1),
+        box-shadow 0.35s cubic-bezier(0.22, 1, 0.36, 1),
+        transform 0.35s cubic-bezier(0.22, 1, 0.36, 1),
+        opacity 0.35s ease;
+    }
+
+    /* 스와이프 스테이지 래퍼 */
+    .swipe-stage-wrapper {
+      margin-bottom: 16px;
+      transition: opacity 0.35s ease, transform 0.35s cubic-bezier(0.22, 1, 0.36, 1);
+    }
+
+    /* 접힌(완료된) 섹션 카드 스타일 */
+    .section-card.collapsed {
+      background-color: #F3F4F6;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+      border: 1px solid #E5E7EB;
+      cursor: pointer;
+      overflow: hidden;
+    }
+    .section-card.collapsed:hover {
+      background-color: #ECEEF2;
+    }
+
+    /* 섹션 등장 애니메이션 */
+    @keyframes sectionReveal {
+      0% {
+        opacity: 0;
+        transform: translateY(18px) scale(0.97);
+      }
+      100% {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+      }
+    }
+    .section-reveal {
+      animation: sectionReveal 0.4s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+    }
+
+    /* 아코디언 바디 */
+    .accordion-body {
+      display: grid;
+      grid-template-rows: 1fr;
+      transition: grid-template-rows 0.36s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.26s ease;
+      opacity: 1;
+    }
+    .section-card.collapsed .accordion-body {
+      grid-template-rows: 0fr;
+      opacity: 0;
+      pointer-events: none;
+    }
+    .accordion-inner {
+      overflow: hidden;
+    }
+
+    /* 접힌 상태 헤더 */
+    .collapsed-header {
+      max-height: 0;
+      opacity: 0;
+      padding: 0 22px;
+      overflow: hidden;
+      transition: max-height 0.35s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.25s ease, padding 0.35s ease;
+    }
+    .section-card.collapsed .collapsed-header {
+      max-height: 76px;
+      opacity: 1;
+      padding: 18px 22px;
+    }
+
+    /* =========================================================
+       스와이프 카드 덱 디자인 (부채꼴 회전 중심축 및 각도 연동)
+    ========================================================== */
+    .swipe-deck {
+      position: relative;
+      width: 256px;
+      height: 196px;
+      margin: 0 auto;
+      user-select: none;
+    }
+
+    /* 뒤쪽 왼쪽 기울어진 X 카드 */
+    .back-card-left {
+      position: absolute;
+      inset: 4px 10px;
+      border-radius: 18px;
+      background-color: #D6B1B1;
+      transform: rotate(-13deg) translateX(-24px) translateY(4px);
+      transform-origin: bottom right;
+      display: flex;
+      align-items: center;
+      justify-content: flex-start;
+      padding-left: 16px;
+      font-size: 16px;
+      font-weight: 800;
+      color: #111827;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06);
+      transition: background-color 0.25s ease, transform 0.25s ease, opacity 0.25s ease;
+      cursor: pointer;
+    }
+    .back-card-left:hover {
+      transform: rotate(-15deg) translateX(-28px) translateY(3px);
+    }
+
+    /* 뒤쪽 오른쪽 기울어진 O 카드 */
+    .back-card-right {
+      position: absolute;
+      inset: 4px 10px;
+      border-radius: 18px;
+      background-color: #BEECE6;
+      transform: rotate(13deg) translateX(24px) translateY(4px);
+      transform-origin: bottom left;
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      padding-right: 16px;
+      font-size: 16px;
+      font-weight: 800;
+      color: #111827;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06);
+      transition: background-color 0.25s ease, transform 0.25s ease, opacity 0.25s ease;
+      cursor: pointer;
+    }
+    .back-card-right:hover {
+      transform: rotate(15deg) translateX(28px) translateY(3px);
+    }
+
+    /* O 선택 시 뒤쪽 X 카드 비활성(회색) 처리 */
+    .swipe-deck.chosen-yes .back-card-left {
+      background-color: #DCDCDC;
+      color: #111827;
+    }
+    .swipe-deck.chosen-yes .back-card-right {
+      background-color: #BEECE6;
+    }
+
+    /* X 선택 시 뒤쪽 O 카드 비활성(회색) 처리 */
+    .swipe-deck.chosen-no .back-card-right {
+      background-color: #DCDCDC;
+      color: #111827;
+    }
+    .swipe-deck.chosen-no .back-card-left {
+      background-color: #D6B1B1;
+    }
+
+    /* 앞쪽 메인 스와이프 카드 (하단 부채꼴 중심축 기준 회전) */
+    .front-swipe-card {
+      position: relative;
+      z-index: 10;
+      width: 100%;
+      height: 100%;
+      background-color: #FFFFFF;
+      border-radius: 18px;
+      padding: 20px 22px;
+      box-shadow: 0 6px 20px rgba(0, 0, 0, 0.08);
+      border: 1.5px solid rgba(0, 0, 0, 0.04);
+      display: flex;
+      flex-direction: column;
+      cursor: grab;
+      touch-action: pan-y;
+      transform-origin: 50% 145%;
+      will-change: transform, background-color, border-color, box-shadow;
+      transition:
+        transform 0.36s cubic-bezier(0.22, 1, 0.36, 1),
+        background-color 0.28s ease,
+        border-color 0.28s ease,
+        box-shadow 0.28s ease;
+    }
+    .front-swipe-card:active {
+      cursor: grabbing;
+    }
+    .front-swipe-card.dragging {
+      transition: none !important;
+    }
+    .card-question-text,
+    .card-result-mark {
+      transition: color 0.25s ease, opacity 0.2s ease, transform 0.25s ease;
+    }
+    .front-swipe-card.dragging .card-question-text,
+    .front-swipe-card.dragging .card-result-mark {
+      transition: none !important;
+    }
+
+    /* 선택 완료 후 2초 유지 강조 상태 - 예 (O) */
+    .front-swipe-card.result-yes {
+      background-color: #DDF9F5 !important;
+      border-color: #8BECE0 !important;
+      box-shadow: 0 6px 22px rgba(28, 227, 206, 0.25) !important;
+    }
+    .front-swipe-card.result-yes .card-question-text,
+    .front-swipe-card.result-yes .card-result-mark {
+      color: #00A896 !important;
+    }
+
+    /* 선택 완료 후 2초 유지 강조 상태 - 아니오 (X) */
+    .front-swipe-card.result-no {
+      background-color: #FAE3E3 !important;
+      border-color: #F2B8B8 !important;
+      box-shadow: 0 6px 22px rgba(220, 38, 38, 0.16) !important;
+    }
+    .front-swipe-card.result-no .card-question-text,
+    .front-swipe-card.result-no .card-result-mark {
+      color: #C82828 !important;
+    }
+
+    /* 카드 교체 애니메이션 (완료 후 transform을 점유하지 않도록 forwards 제거) */
+    @keyframes cardPopIn {
+      0% {
+        opacity: 0;
+        transform: scale(0.94) translateY(8px);
+      }
+      100% {
+        opacity: 1;
+        transform: scale(1) translateY(0);
+      }
+    }
+    .card-pop-in {
+      animation: cardPopIn 0.32s cubic-bezier(0.22, 1, 0.36, 1);
+    }
+
+    /* 결제수단 X 선택 시 펼쳐지는 체크박스 스타일 */
+    .option-row {
+      padding: 10px 12px;
+      border-radius: 12px;
+      border: 1.5px solid transparent;
+      background-color: transparent;
+      transition: opacity 0.25s ease, background-color 0.25s ease, border-color 0.25s ease;
+    }
+    .option-list.has-selection .option-row:not(.selected) {
+      opacity: 0.35;
+    }
+    .option-row.selected {
+      opacity: 1 !important;
+      background-color: rgba(28, 227, 206, 0.12);
+      border-color: #1CE3CE;
+      box-shadow: 0 2px 8px rgba(28, 227, 206, 0.14);
+    }
+    .option-row.selected .option-label {
+      font-weight: 700;
+      color: #111827;
+    }
+    .custom-checkbox {
+      width: 22px;
+      height: 22px;
+      border-radius: 6px;
+      border: 1.8px solid #9CA3AF;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      background-color: #FFFFFF;
+      transition: all 0.18s ease;
+    }
+    .option-row.selected .custom-checkbox {
+      background-color: #1CE3CE;
+      border-color: #1CE3CE;
+    }
+    .option-row.selected .check-icon {
+      opacity: 1;
+      transform: scale(1);
+    }
+    .check-icon {
+      opacity: 0;
+      transform: scale(0.6);
+      transition: all 0.18s cubic-bezier(0.34, 1.56, 0.64, 1);
+    }
+
+    /* 하단 결제 버튼 */
+    .pay-btn {
+      transition: all 0.32s cubic-bezier(0.22, 1, 0.36, 1);
+    }
+    .pay-btn:disabled {
+      background-color: #CCF6F0;
+      color: #8C9896;
+      cursor: not-allowed;
+    }
+    .pay-btn:not(:disabled) {
+      background-color: #1CE3CE;
+      color: #111827;
+      box-shadow: 0 6px 18px rgba(28, 227, 206, 0.35);
+      cursor: pointer;
+    }
+    .pay-btn:not(:disabled):active {
+      transform: scale(0.97);
+    }
+
+    /* 토스트 알림 */
+    .toast-pill {
+      transition: opacity 0.25s ease, transform 0.25s cubic-bezier(0.22, 1, 0.36, 1);
+    }
+  </style>
+</head>
+<body>
+
+  <div class="app-shell">
+    <!-- 상단 고정 헤더 -->
+    <header class="sticky top-0 z-30 bg-white h-14 px-4 flex items-center justify-between shadow-[0_1px_4px_rgba(0,0,0,0.06)] shrink-0">
+      <div class="w-14"></div>
+      <h1 class="text-[17px] font-bold text-gray-900 tracking-tight">주문하기</h1>
+      <div class="w-14 flex justify-end">
+        <button
+          id="resetBtn"
+          type="button"
+          title="처음부터 다시하기"
+          class="text-xs font-medium text-gray-400 hover:text-gray-700 px-2 py-1 rounded-md hover:bg-gray-100 transition"
+        >
+          초기화
+        </button>
+      </div>
+    </header>
+
+    <!-- 중앙 자동 스크롤 뷰포트 -->
+    <main id="scrollViewport" class="scroll-viewport">
+      <div id="sectionsContainer" class="w-full max-w-[360px] mx-auto">
+
+        <!-- =========================================================
+             SECTION 0: 배달 주소
+        ========================================================== -->
+        <section id="section-0" data-step="0" class="section-card section-reveal">
+          <!-- 접힌 상태 헤더 -->
+          <div class="collapsed-header flex items-center justify-between" onclick="handleSectionClick(0)">
+            <div class="flex items-center gap-2.5 min-w-0">
+              <span class="text-[16px] font-bold text-gray-900 shrink-0">배달 주소</span>
+              <span id="summary-0" class="text-[13px] text-gray-500 truncate"></span>
+            </div>
+            <svg class="w-6 h-6 text-[#1CE3CE] shrink-0" fill="none" stroke="currentColor" stroke-width="2.4" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
+            </svg>
+          </div>
+
+          <!-- 활성 입력 폼 -->
+          <div class="accordion-body">
+            <div class="accordion-inner">
+              <div class="p-5">
+                <h2 class="text-[16px] font-bold text-gray-900 mb-3.5">배달 주소</h2>
+
+                <!-- 신촌(연세로 50) 실제 지도 연동 영역 -->
+                <div class="w-full h-[146px] bg-[#E5E7EB] rounded-xl mb-4 relative overflow-hidden border border-gray-200 shadow-inner">
+                  <iframe
+                    title="신촌 연세로 50 지도"
+                    src="https://www.openstreetmap.org/export/embed.html?bbox=126.9325%2C37.5542%2C126.9428%2C37.5615&layer=mapnik&marker=37.5585%2C126.9376"
+                    class="w-full h-full border-0"
+                    loading="lazy"
+                  ></iframe>
+                  <div class="pointer-events-none absolute top-2.5 left-2.5 bg-white/95 backdrop-blur-sm px-2.5 py-1 rounded-full shadow-sm border border-gray-200/80 flex items-center gap-1.5">
+                    <span class="w-2 h-2 rounded-full bg-[#1CE3CE]"></span>
+                    <span class="text-[11px] font-bold text-gray-800">신촌 · 연세로 50</span>
+                  </div>
+                </div>
+
+                <!-- 기본 주소 -->
+                <div class="mb-3">
+                  <p class="text-[15px] font-bold text-gray-900 mb-1.5">서울 서대문구 연세로50</p>
+                  <input
+                    id="detailAddressInput"
+                    type="text"
+                    placeholder="상세 주소 입력"
+                    class="w-full h-[38px] px-3 text-[13.5px] text-gray-800 placeholder-gray-400 border border-gray-300 rounded-md focus:outline-none focus:border-gray-800 transition"
+                  />
+                </div>
+
+                <!-- 공동현관 비밀번호 -->
+                <div class="mb-3">
+                  <label for="gateCodeInput" class="block text-[13.5px] font-bold text-gray-900 mb-1.5">공동현관 비밀번호</label>
+                  <input
+                    id="gateCodeInput"
+                    type="text"
+                    placeholder="예) #1234"
+                    class="w-full h-[38px] px-3 text-[13.5px] text-gray-800 placeholder-gray-400 border border-gray-300 rounded-md focus:outline-none focus:border-gray-800 transition"
+                  />
+                </div>
+
+                <!-- 찾아오는 길 안내 -->
+                <div class="mb-5">
+                  <label for="directionInput" class="block text-[13.5px] font-bold text-gray-900 mb-1.5">찾아오는 길 안내</label>
+                  <input
+                    id="directionInput"
+                    type="text"
+                    placeholder="예) 언더우드관 뒤 건물이에요"
+                    class="w-full h-[38px] px-3 text-[13.5px] text-gray-800 placeholder-gray-400 border border-gray-300 rounded-md focus:outline-none focus:border-gray-800 transition"
+                  />
+                </div>
+
+                <!-- 주소 등록 버튼 -->
+                <button
+                  id="submitAddressBtn"
+                  type="button"
+                  onclick="submitAddress()"
+                  class="w-full h-[42px] bg-black hover:bg-gray-900 active:scale-[0.99] text-white text-[14px] font-bold rounded-md transition"
+                >
+                  주소 등록
+                </button>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- =========================================================
+             SECTION 1: 배달 요청사항 (스와이프 카드)
+        ========================================================== -->
+        <section id="section-1" data-step="1" class="hidden">
+          <!-- 접힌 상태 카드 -->
+          <div id="collapsed-1" class="hidden section-card collapsed" onclick="handleSectionClick(1)">
+            <div class="collapsed-header flex items-center justify-between gap-3">
+              <span class="text-[16px] font-bold text-gray-900 shrink-0">배달 요청사항</span>
+              <span id="summary-1" class="text-[13.5px] text-gray-500 font-medium truncate"></span>
+            </div>
+          </div>
+
+          <!-- 활성 스와이프 카드 덱 -->
+          <div id="active-1" class="swipe-stage-wrapper py-2">
+            <div id="deck-1" class="swipe-deck">
+              <div class="back-card-left" onclick="triggerSwipeChoice(1, false, false)" title="왼쪽 스와이프 (아니오)">X</div>
+              <div class="back-card-right" onclick="triggerSwipeChoice(1, true, false)" title="오른쪽 스와이프 (예)">O</div>
+              <div id="card-1" class="front-swipe-card">
+                <h2 class="text-[16px] font-bold text-gray-900 text-left">배달 요청사항</h2>
+                <div class="flex-1 flex flex-col items-center justify-center text-center px-2">
+                  <p id="qtext-1" class="card-question-text text-[15px] font-semibold text-gray-800 leading-snug">
+                    도착 시 초인종 누르기
+                  </p>
+                  <span id="rmark-1" class="card-result-mark hidden mt-1.5 text-[16px] font-extrabold"></span>
+                </div>
+                <div class="h-4"></div>
+              </div>
+            </div>
+            <p class="text-center text-[12px] text-gray-400 mt-3.5 font-medium">스와이프해서 선택하기</p>
+          </div>
+        </section>
+
+        <!-- =========================================================
+             SECTION 2: 가게 요청사항 (연속 3장 스와이프: 수저/포크 -> 기본반찬 -> 추가 요청사항)
+        ========================================================== -->
+        <section id="section-2" data-step="2" class="hidden">
+          <!-- 접힌 상태 카드 -->
+          <div id="collapsed-2" class="hidden section-card collapsed" onclick="handleSectionClick(2)">
+            <div class="collapsed-header flex items-center justify-between gap-3">
+              <span class="text-[16px] font-bold text-gray-900 shrink-0">가게 요청사항</span>
+              <span id="summary-2" class="text-[13.5px] text-gray-500 font-medium truncate"></span>
+            </div>
+          </div>
+
+          <!-- 활성 영역 (모드 A: 스와이프 카드 덱 / 모드 B: 추가 요청사항 O 선택 시 입력 창) -->
+          <div id="active-2">
+            <!-- 모드 A: 스와이프 카드 덱 -->
+            <div id="store-swipe-mode" class="swipe-stage-wrapper py-2">
+              <div id="deck-2" class="swipe-deck">
+                <div class="back-card-left" onclick="triggerSwipeChoice(2, false, false)" title="왼쪽 스와이프 (아니오)">X</div>
+                <div class="back-card-right" onclick="triggerSwipeChoice(2, true, false)" title="오른쪽 스와이프 (예)">O</div>
+                <div id="card-2" class="front-swipe-card">
+                  <div class="flex items-center justify-between">
+                    <h2 class="text-[16px] font-bold text-gray-900 text-left">가게 요청사항</h2>
+                    <span id="substep-badge-2" class="text-[11px] font-semibold text-gray-400">1 / 3</span>
+                  </div>
+                  <div class="flex-1 flex flex-col items-center justify-center text-center px-2">
+                    <p id="qtext-2" class="card-question-text text-[15px] font-semibold text-gray-800 leading-snug">
+                      수저, 포크 받기
+                    </p>
+                    <span id="rmark-2" class="card-result-mark hidden mt-1.5 text-[16px] font-extrabold"></span>
+                  </div>
+                  <div class="h-4"></div>
+                </div>
+              </div>
+              <p class="text-center text-[12px] text-gray-400 mt-3.5 font-medium">스와이프해서 선택하기</p>
+            </div>
+
+            <!-- 모드 B: 추가 요청사항 O 선택 시 열리는 입력 창 -->
+            <div id="store-input-mode" class="hidden section-card section-reveal p-5">
+              <div class="flex items-center justify-between mb-3.5">
+                <h2 class="text-[16px] font-bold text-gray-900">추가 요청사항</h2>
+                <button
+                  type="button"
+                  onclick="backToStoreSwipe()"
+                  class="text-[11.5px] font-medium text-gray-400 hover:text-gray-700 underline underline-offset-2"
+                >
+                  이전 카드로
+                </button>
+              </div>
+              <input
+                id="storeCustomInput"
+                type="text"
+                placeholder="예) 덜 맵게 해주세요, 소스 따로 주세요"
+                onkeydown="if (event.key === 'Enter') confirmStoreCustomInput()"
+                class="w-full h-[40px] px-3 text-[13.5px] text-gray-800 placeholder-gray-400 border border-gray-300 rounded-md focus:outline-none focus:border-gray-800 transition"
+              />
+              <button
+                type="button"
+                onclick="confirmStoreCustomInput()"
+                class="mt-3 w-full h-[40px] bg-black hover:bg-gray-900 active:scale-[0.99] text-white text-[13.5px] font-bold rounded-md transition"
+              >
+                확인
+              </button>
+            </div>
+          </div>
+        </section>
+
+        <!-- =========================================================
+             SECTION 3: 결제수단 (스와이프 -> X 선택 시 체크박스 열림)
+        ========================================================== -->
+        <section id="section-3" data-step="3" class="hidden">
+          <!-- 접힌 상태 카드 -->
+          <div id="collapsed-3" class="hidden section-card collapsed" onclick="handleSectionClick(3)">
+            <div class="collapsed-header flex items-center justify-between gap-3">
+              <span class="text-[16px] font-bold text-gray-900 shrink-0">결제수단</span>
+              <span id="summary-3" class="text-[13.5px] text-gray-500 font-medium truncate"></span>
+            </div>
+          </div>
+
+          <!-- 활성 영역 (모드 A: 스와이프 카드 / 모드 B: 체크박스 선택 카드) -->
+          <div id="active-3">
+            <!-- 모드 A: 지난번 결제수단 그대로 사용 스와이프 -->
+            <div id="payment-swipe-mode" class="swipe-stage-wrapper py-2">
+              <div id="deck-3" class="swipe-deck">
+                <div class="back-card-left" onclick="triggerSwipeChoice(3, false, false)" title="다른 결제수단 선택 (X)">X</div>
+                <div class="back-card-right" onclick="triggerSwipeChoice(3, true, false)" title="그대로 사용 (O)">O</div>
+                <div id="card-3" class="front-swipe-card">
+                  <h2 class="text-[16px] font-bold text-gray-900 text-left">결제수단</h2>
+                  <div class="flex-1 flex flex-col items-center justify-center text-center px-1">
+                    <p id="qtext-3" class="card-question-text text-[14.5px] font-semibold text-gray-800 leading-relaxed">
+                      지난 번 결제수단<br />(카카오페이) 그대로 사용
+                    </p>
+                    <span id="rmark-3" class="card-result-mark hidden mt-1.5 text-[16px] font-extrabold"></span>
+                  </div>
+                  <div class="h-4"></div>
+                </div>
+              </div>
+              <p class="text-center text-[12px] text-gray-400 mt-3.5 font-medium">스와이프해서 선택하기</p>
+            </div>
+
+            <!-- 모드 B: X 선택 시 열리는 다른 결제수단 체크박스 카드 -->
+            <div id="payment-checkbox-mode" class="hidden section-card section-reveal p-5">
+              <div class="flex items-center justify-between mb-3.5">
+                <h2 class="text-[16px] font-bold text-gray-900">결제수단</h2>
+                <button
+                  type="button"
+                  onclick="backToPaymentSwipe()"
+                  class="text-[11.5px] font-medium text-gray-400 hover:text-gray-700 underline underline-offset-2"
+                >
+                  이전 카드로
+                </button>
+              </div>
+              <div id="paymentOptionsList" class="option-list space-y-1.5">
+                <!-- JS로 렌더링 -->
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- =========================================================
+             SECTION 4: 할인쿠폰 (스와이프 카드)
+        ========================================================== -->
+        <section id="section-4" data-step="4" class="hidden">
+          <!-- 접힌 상태 카드 -->
+          <div id="collapsed-4" class="hidden section-card collapsed" onclick="handleSectionClick(4)">
+            <div class="collapsed-header flex items-center justify-between gap-3">
+              <span class="text-[16px] font-bold text-gray-900 shrink-0">할인쿠폰</span>
+              <span id="summary-4" class="text-[13.5px] text-gray-500 font-medium truncate"></span>
+            </div>
+          </div>
+
+          <!-- 활성 스와이프 카드 덱 -->
+          <div id="active-4" class="swipe-stage-wrapper py-2">
+            <div id="deck-4" class="swipe-deck">
+              <div class="back-card-left" onclick="triggerSwipeChoice(4, false, false)" title="쿠폰 미적용 (X)">X</div>
+              <div class="back-card-right" onclick="triggerSwipeChoice(4, true, false)" title="쿠폰 적용 (O)">O</div>
+              <div id="card-4" class="front-swipe-card">
+                <h2 class="text-[16px] font-bold text-gray-900 text-left">할인쿠폰</h2>
+                <div class="flex-1 flex flex-col items-center justify-center text-center px-2">
+                  <p id="qtext-4" class="card-question-text text-[15.5px] font-bold text-[#2B38E6] leading-snug">
+                    3,000원 할인 쿠폰
+                  </p>
+                  <span id="rmark-4" class="card-result-mark hidden mt-1.5 text-[16px] font-extrabold"></span>
+                </div>
+                <div class="h-4"></div>
+              </div>
+            </div>
+            <p class="text-center text-[12px] text-gray-400 mt-3.5 font-medium">스와이프해서 선택하기</p>
+          </div>
+        </section>
+
+        <!-- =========================================================
+             SECTION 5: 영수증
+        ========================================================== -->
+        <section id="section-5" data-step="5" class="section-card hidden">
+          <div class="collapsed-header flex items-center justify-between" onclick="handleSectionClick(5)">
+            <div class="flex items-center gap-2.5 min-w-0">
+              <span class="text-[16px] font-bold text-gray-900 shrink-0">영수증</span>
+              <span id="summary-5" class="text-[13px] text-gray-700 font-semibold truncate"></span>
+            </div>
+            <svg class="w-6 h-6 text-[#1CE3CE] shrink-0" fill="none" stroke="currentColor" stroke-width="2.4" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
+            </svg>
+          </div>
+
+          <div class="accordion-body">
+            <div class="accordion-inner">
+              <div class="p-5">
+                <h2 class="text-[16px] font-bold text-gray-900 mb-4">영수증</h2>
+
+                <!-- 기본 금액 내역 -->
+                <div class="space-y-2 text-[14px] text-gray-700 mb-4">
+                  <div class="flex justify-between">
+                    <span>메뉴금액</span>
+                    <span class="font-medium">38,500원</span>
+                  </div>
+                  <div class="flex justify-between">
+                    <span>배달팁</span>
+                    <span class="font-medium">2,000원</span>
+                  </div>
+                </div>
+
+                <!-- 할인 내역 -->
+                <div class="space-y-2 text-[14px] pt-3 border-t border-gray-100 mb-5">
+                  <div class="flex justify-between font-bold text-[#2B38E6]">
+                    <span>총 할인받은 금액</span>
+                    <span id="totalDiscountText">-6,000원</span>
+                  </div>
+                  <div class="flex justify-between text-gray-600 text-[13.5px]">
+                    <span>배달팁 할인</span>
+                    <span class="text-[#2B38E6]">-1,000원</span>
+                  </div>
+                  <div class="flex justify-between text-gray-600 text-[13.5px]">
+                    <span>BHC 할인</span>
+                    <span class="text-[#2B38E6]">-2,000원</span>
+                  </div>
+                  <div class="flex justify-between text-gray-600 text-[13.5px]">
+                    <span>할인쿠폰</span>
+                    <span id="couponReceiptText" class="text-[#2B38E6]">-3,000원</span>
+                  </div>
+                </div>
+
+                <!-- 최종 결제금액 -->
+                <div class="flex justify-between items-center pt-3 border-t border-gray-200 mb-4">
+                  <span class="text-[15.5px] font-bold text-gray-900">결제금액</span>
+                  <span id="finalReceiptPrice" class="text-[16.5px] font-extrabold text-gray-900">34,500원</span>
+                </div>
+
+                <!-- 금액을 확인했어요 버튼 -->
+                <button
+                  id="confirmAmountBtn"
+                  type="button"
+                  onclick="confirmReceiptAmount()"
+                  class="w-full h-[42px] bg-[#E8E7FB] hover:bg-[#DDDDF9] active:scale-[0.99] text-[#2B38E6] text-[14px] font-bold rounded-md flex items-center justify-center gap-1.5 transition"
+                >
+                  <span id="confirmAmountText">금액을 확인했어요</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </section>
+
+      </div>
+    </main>
+
+    <!-- 토스트 메시지 -->
+    <div id="toastContainer" class="pointer-events-none fixed bottom-24 left-1/2 -translate-x-1/2 z-40 w-max max-w-[90%]">
+      <div id="toastPill" class="toast-pill opacity-0 translate-y-2 bg-gray-900/90 text-white text-[13px] font-medium px-4 py-2.5 rounded-full shadow-lg">
+        안내 메시지
+      </div>
+    </div>
+
+    <!-- 하단 고정 결제 바 -->
+    <footer class="sticky bottom-0 z-30 bg-white px-5 pt-3.5 pb-6 shadow-[0_-2px_12px_rgba(0,0,0,0.05)] flex justify-end items-center shrink-0">
+      <div
+        id="payBtnWrapper"
+        onclick="handleDisabledPayClick()"
+        class="inline-block"
+      >
+        <button
+          id="payButton"
+          type="button"
+          disabled
+          onclick="openPaymentModal(event)"
+          class="pay-btn h-[50px] px-7 rounded-lg text-[16px] font-extrabold tracking-tight"
+        >
+          34,500원 결제하기
+        </button>
+      </div>
+    </footer>
+
+    <!-- 결제 완료 모달 -->
+    <div id="completeModal" class="hidden fixed inset-0 z-50 bg-black/50 backdrop-blur-[2px] flex items-center justify-center p-5">
+      <div class="bg-white w-full max-w-[360px] rounded-2xl p-6 shadow-2xl text-center section-reveal">
+        <div class="w-14 h-14 rounded-full bg-[#1CE3CE]/20 text-[#0FA898] flex items-center justify-center mx-auto mb-3.5">
+          <svg class="w-8 h-8" fill="none" stroke="currentColor" stroke-width="2.8" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
+          </svg>
+        </div>
+        <h3 class="text-[19px] font-extrabold text-gray-900 mb-1">주문이 완료되었습니다!</h3>
+        <p class="text-[13.5px] text-gray-500 mb-4">스와이프로 선택한 모든 옵션이 반영되었어요.</p>
+
+        <div id="orderSummaryBox" class="bg-gray-50 rounded-xl p-3.5 text-left text-[12.5px] text-gray-700 space-y-1.5 mb-5 border border-gray-100">
+          <!-- 요약 데이터 JS 삽입 -->
+        </div>
+
+        <button
+          type="button"
+          onclick="resetPrototype()"
+          class="w-full h-[44px] bg-[#1CE3CE] hover:bg-[#17D1BD] text-gray-900 font-extrabold text-[14.5px] rounded-xl transition"
+        >
+          처음부터 다시 체험하기
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // =========================================================
+    // 데이터 및 상태 관리
+    // =========================================================
+    const PAYMENT_OPTIONS = [
+      '배민페이머니',
+      '신용/체크카드',
+      '카카오페이'
+    ];
+
+    const STORE_SUB_QUESTIONS = [
+      { key: 'cutlery', question: '수저, 포크 받기', shortLabel: '수저, 포크' },
+      { key: 'sideDish', question: '기본 반찬 받기', shortLabel: '기본 반찬' },
+      { key: 'extraRequest', question: '추가 요청사항', shortLabel: '추가 요청' }
+    ];
+
+    const state = {
+      activeStep: 0,
+      highestUnlocked: 0,
+      completed: [false, false, false, false, false, false],
+      isTransitioning: false,
+      address: {
+        base: '서울 서대문구 연세로50',
+        detail: '',
+        gate: '',
+        direction: ''
+      },
+      doorbellYes: null,
+      storeSubIndex: 0,
+      storeAnswers: [null, null, null],
+      storeMode: 'swipe',
+      storeCustomText: '',
+      paymentMode: 'swipe',
+      paymentMethod: '',
+      couponApplied: true,
+      receiptConfirmed: false
+    };
+
+    let holdTimer = null;
+
+    function clearHoldTimer() {
+      if (holdTimer) {
+        clearTimeout(holdTimer);
+        holdTimer = null;
+      }
+      state.isTransitioning = false;
+    }
+
+    // =========================================================
+    // 섹션 스크롤 중앙 정렬 및 아코디언 전환
+    // =========================================================
+    function centerSection(stepIndex, smooth = true) {
+      const viewport = document.getElementById('scrollViewport');
+      const target = document.getElementById(`section-${stepIndex}`);
+      if (!viewport || !target || target.classList.contains('hidden')) return;
+
+      const viewportRect = viewport.getBoundingClientRect();
+      const targetRect = target.getBoundingClientRect();
+      const currentScrollTop = viewport.scrollTop;
+      const targetOffsetInViewport = targetRect.top - viewportRect.top;
+      const desiredScrollTop =
+        currentScrollTop + targetOffsetInViewport - (viewportRect.height / 2) + (targetRect.height / 2);
+
+      viewport.scrollTo({
+        top: Math.max(0, desiredScrollTop),
+        behavior: smooth ? 'smooth' : 'auto'
+      });
+    }
+
+    function openSection(stepIndex) {
+      clearHoldTimer();
+      state.activeStep = stepIndex;
+
+      for (let i = 0; i <= 5; i++) {
+        const sec = document.getElementById(`section-${i}`);
+        if (!sec) continue;
+
+        const isSwipeSection = i >= 1 && i <= 4;
+
+        if (i === stepIndex) {
+          const wasHidden = sec.classList.contains('hidden');
+          sec.classList.remove('hidden');
+
+          if (isSwipeSection) {
+            const collapsedEl = document.getElementById(`collapsed-${i}`);
+            const activeEl = document.getElementById(`active-${i}`);
+            if (collapsedEl) collapsedEl.classList.add('hidden');
+            if (activeEl) {
+              activeEl.classList.remove('hidden');
+              activeEl.classList.add('section-reveal');
+            }
+            prepareStepForReentry(i);
+          } else {
+            sec.classList.remove('collapsed');
+            if (wasHidden) {
+              sec.classList.add('section-reveal');
+            }
+          }
+        } else if (i <= state.highestUnlocked) {
+          sec.classList.remove('hidden');
+
+          if (isSwipeSection) {
+            const collapsedEl = document.getElementById(`collapsed-${i}`);
+            const activeEl = document.getElementById(`active-${i}`);
+            if (activeEl) activeEl.classList.add('hidden');
+            if (collapsedEl) collapsedEl.classList.remove('hidden');
+          } else {
+            sec.classList.add('collapsed');
+          }
+        } else {
+          sec.classList.add('hidden');
+        }
+      }
+
+      requestAnimationFrame(() => centerSection(stepIndex, true));
+      setTimeout(() => centerSection(stepIndex, true), 200);
+      setTimeout(() => centerSection(stepIndex, true), 380);
+    }
+
+    function prepareStepForReentry(stepIndex) {
+      if (stepIndex === 1) {
+        resetSwipeCardVisual(1, '도착 시 초인종 누르기', false);
+      } else if (stepIndex === 2) {
+        state.storeSubIndex = 0;
+        state.storeMode = 'swipe';
+        document.getElementById('store-swipe-mode').classList.remove('hidden');
+        document.getElementById('store-input-mode').classList.add('hidden');
+        document.getElementById('substep-badge-2').textContent = '1 / 3';
+        resetSwipeCardVisual(2, STORE_SUB_QUESTIONS[0].question, false);
+      } else if (stepIndex === 3) {
+        state.paymentMode = 'swipe';
+        document.getElementById('payment-swipe-mode').classList.remove('hidden');
+        document.getElementById('payment-checkbox-mode').classList.add('hidden');
+        resetSwipeCardVisual(3, '지난 번 결제수단<br />(카카오페이) 그대로 사용', true);
+      } else if (stepIndex === 4) {
+        resetSwipeCardVisual(4, '3,000원 할인 쿠폰', false);
+      }
+    }
+
+    function completeStepAndAdvance(stepIndex, summaryText) {
+      const summaryEl = document.getElementById(`summary-${stepIndex}`);
+      if (summaryEl) {
+        summaryEl.textContent = summaryText;
+      }
+      state.completed[stepIndex] = true;
+
+      const nextStep = Math.min(5, stepIndex + 1);
+      if (nextStep > state.highestUnlocked) {
+        state.highestUnlocked = nextStep;
+      }
+      openSection(nextStep);
+    }
+
+    function handleSectionClick(stepIndex) {
+      if (stepIndex <= state.highestUnlocked && state.activeStep !== stepIndex) {
+        openSection(stepIndex);
+      }
+    }
+
+    // =========================================================
+    // STEP 0: 배달 주소 등록
+    // =========================================================
+    function submitAddress() {
+      const detail = document.getElementById('detailAddressInput').value.trim();
+      const gate = document.getElementById('gateCodeInput').value.trim();
+      const direction = document.getElementById('directionInput').value.trim();
+
+      state.address.detail = detail;
+      state.address.gate = gate;
+      state.address.direction = direction;
+
+      const summary = detail ? `연세로50 ${detail}` : '서울 서대문구 연세로50';
+      completeStepAndAdvance(0, summary);
+    }
+
+    // =========================================================
+    // 스와이프 카드 제어 및 실시간 부채꼴 회전/색상 보간
+    // =========================================================
+    function lerpColor(hex1, hex2, t) {
+      const c1 = parseInt(hex1.slice(1), 16);
+      const c2 = parseInt(hex2.slice(1), 16);
+      const r1 = (c1 >> 16) & 255, g1 = (c1 >> 8) & 255, b1 = c1 & 255;
+      const r2 = (c2 >> 16) & 255, g2 = (c2 >> 8) & 255, b2 = c2 & 255;
+      const r = Math.round(r1 + (r2 - r1) * t);
+      const g = Math.round(g1 + (g2 - g1) * t);
+      const b = Math.round(b1 + (b2 - b1) * t);
+      return `rgb(${r}, ${g}, ${b})`;
+    }
+
+    function resetSwipeCardVisual(stepIndex, questionContent, isHTML = false) {
+      const deck = document.getElementById(`deck-${stepIndex}`);
+      const card = document.getElementById(`card-${stepIndex}`);
+      const qtext = document.getElementById(`qtext-${stepIndex}`);
+      const rmark = document.getElementById(`rmark-${stepIndex}`);
+      if (!deck || !card || !qtext || !rmark) return;
+
+      const leftBack = deck.querySelector('.back-card-left');
+      const rightBack = deck.querySelector('.back-card-right');
+
+      deck.classList.remove('chosen-yes', 'chosen-no');
+      card.classList.remove('result-yes', 'result-no', 'dragging', 'card-pop-in');
+      card.style.transform = 'translateX(0px) rotate(0deg)';
+      card.style.backgroundColor = '';
+      card.style.borderColor = '';
+      card.style.boxShadow = '';
+
+      if (leftBack) {
+        leftBack.style.transform = '';
+        leftBack.style.opacity = '';
+      }
+      if (rightBack) {
+        rightBack.style.transform = '';
+        rightBack.style.opacity = '';
+      }
+
+      qtext.style.color = '';
+      if (isHTML) {
+        qtext.innerHTML = questionContent;
+      } else {
+        qtext.textContent = questionContent;
+      }
+
+      rmark.textContent = '';
+      rmark.style.color = '';
+      rmark.style.opacity = '';
+      rmark.classList.add('hidden');
+
+      void card.offsetWidth;
+      card.classList.add('card-pop-in');
+      card.addEventListener('animationend', () => {
+        card.classList.remove('card-pop-in');
+      }, { once: true });
+    }
+
+    function triggerSwipeChoice(stepIndex, isYes, fromDrag = false) {
+      if (state.activeStep !== stepIndex || state.isTransitioning) return;
+      state.isTransitioning = true;
+
+      const deck = document.getElementById(`deck-${stepIndex}`);
+      const card = document.getElementById(`card-${stepIndex}`);
+      const qtext = document.getElementById(`qtext-${stepIndex}`);
+      const rmark = document.getElementById(`rmark-${stepIndex}`);
+      const leftBack = deck.querySelector('.back-card-left');
+      const rightBack = deck.querySelector('.back-card-right');
+
+      card.classList.remove('dragging', 'card-pop-in');
+      if (leftBack) {
+        leftBack.style.transform = '';
+        leftBack.style.opacity = '';
+      }
+      if (rightBack) {
+        rightBack.style.transform = '';
+        rightBack.style.opacity = '';
+      }
+
+      card.style.backgroundColor = '';
+      card.style.borderColor = '';
+      card.style.boxShadow = '';
+      if (qtext) qtext.style.color = '';
+
+      if (isYes) {
+        deck.classList.remove('chosen-no');
+        deck.classList.add('chosen-yes');
+        card.classList.remove('result-no');
+        card.classList.add('result-yes');
+        rmark.textContent = 'O';
+      } else {
+        deck.classList.remove('chosen-yes');
+        deck.classList.add('chosen-no');
+        card.classList.remove('result-yes');
+        card.classList.add('result-no');
+        rmark.textContent = 'X';
+      }
+
+      rmark.style.color = '';
+      rmark.style.opacity = '1';
+      rmark.classList.remove('hidden');
+
+      if (!fromDrag) {
+        const swingX = isYes ? 28 : -28;
+        const swingDeg = isYes ? 11 : -11;
+        card.style.transform = `translateX(${swingX}px) rotate(${swingDeg}deg)`;
+        setTimeout(() => {
+          card.style.transform = 'translateX(0px) rotate(0deg)';
+        }, 120);
+      } else {
+        card.style.transform = 'translateX(0px) rotate(0deg)';
+      }
+
+      // 선택 결과를 강조색으로 2초간 유지 후 다음 화면 진행
+      holdTimer = setTimeout(() => {
+        holdTimer = null;
+        state.isTransitioning = false;
+        handlePostSwipeHold(stepIndex, isYes);
+      }, 2000);
+    }
+
+    function handlePostSwipeHold(stepIndex, isYes) {
+      // 1. 배달 요청사항
+      if (stepIndex === 1) {
+        state.doorbellYes = isYes;
+        const summary = isYes ? '초인종 O' : '초인종 X';
+        completeStepAndAdvance(1, summary);
+        return;
+      }
+
+      // 2. 가게 요청사항 (수저/포크 -> 기본반찬 -> 추가 요청사항)
+      if (stepIndex === 2) {
+        state.storeAnswers[state.storeSubIndex] = isYes;
+
+        if (state.storeSubIndex === 0) {
+          state.storeSubIndex = 1;
+          document.getElementById('substep-badge-2').textContent = '2 / 3';
+          resetSwipeCardVisual(2, STORE_SUB_QUESTIONS[1].question, false);
+          centerSection(2, true);
+        } else if (state.storeSubIndex === 1) {
+          state.storeSubIndex = 2;
+          document.getElementById('substep-badge-2').textContent = '3 / 3';
+          resetSwipeCardVisual(2, STORE_SUB_QUESTIONS[2].question, false);
+          centerSection(2, true);
+        } else {
+          if (isYes) {
+            // O 선택 시: 추가 요청사항 입력 창 열기
+            state.storeMode = 'input';
+            document.getElementById('store-swipe-mode').classList.add('hidden');
+            const inputBox = document.getElementById('store-input-mode');
+            inputBox.classList.remove('hidden');
+            setTimeout(() => {
+              document.getElementById('storeCustomInput').focus();
+              centerSection(2, true);
+            }, 60);
+          } else {
+            // X 선택 시: 바로 다음 단계로 진행
+            state.storeCustomText = '';
+            const s0 = state.storeAnswers[0] ? '수저, 포크 O' : '수저, 포크 X';
+            const s1 = state.storeAnswers[1] ? '기본 반찬 O' : '기본 반찬 X';
+            completeStepAndAdvance(2, `${s0}, ${s1}, 추가 요청 X`);
+          }
+        }
+        return;
+      }
+
+      // 3. 결제수단
+      if (stepIndex === 3) {
+        if (isYes) {
+          state.paymentMethod = '카카오페이 (지난번 결제수단)';
+          completeStepAndAdvance(3, '카카오페이');
+        } else {
+          state.paymentMode = 'checkbox';
+          document.getElementById('payment-swipe-mode').classList.add('hidden');
+          const checkboxCard = document.getElementById('payment-checkbox-mode');
+          checkboxCard.classList.remove('hidden');
+          renderPaymentCheckboxes();
+          setTimeout(() => centerSection(3, true), 60);
+        }
+        return;
+      }
+
+      // 4. 할인쿠폰
+      if (stepIndex === 4) {
+        state.couponApplied = isYes;
+        updatePriceUI();
+
+        if (state.receiptConfirmed) {
+          state.receiptConfirmed = false;
+          document.getElementById('payButton').disabled = true;
+          const confirmBtn = document.getElementById('confirmAmountBtn');
+          confirmBtn.classList.remove('bg-[#2B38E6]', 'text-white');
+          confirmBtn.classList.add('bg-[#E8E7FB]', 'text-[#2B38E6]');
+          document.getElementById('confirmAmountText').textContent = '금액을 확인했어요';
+        }
+
+        const summary = isYes ? '3,000원 할인 쿠폰' : '할인 쿠폰 미적용';
+        completeStepAndAdvance(4, summary);
+      }
+    }
+
+    function setupSwipeListeners() {
+      [1, 2, 3, 4].forEach(stepIndex => {
+        const deck = document.getElementById(`deck-${stepIndex}`);
+        const card = document.getElementById(`card-${stepIndex}`);
+        const qtext = document.getElementById(`qtext-${stepIndex}`);
+        const rmark = document.getElementById(`rmark-${stepIndex}`);
+        if (!deck || !card) return;
+
+        const leftBack = deck.querySelector('.back-card-left');
+        const rightBack = deck.querySelector('.back-card-right');
+
+        let isDragging = false;
+        let startX = 0;
+        let currentDx = 0;
+
+        const applyDragVisuals = (dx) => {
+          const maxRange = 110;
+          const progress = Math.max(-1, Math.min(1, dx / maxRange));
+          const intensity = Math.min(1, Math.abs(progress) * 1.15);
+
+          // 부채꼴 하단 중심축 기준 각도 회전 및 원호 이동
+          const rotateDeg = progress * 16;
+          const translateX = dx * 0.65;
+          const translateY = Math.abs(progress) * 6;
+          card.style.transform = `translateX(${translateX}px) translateY(${translateY}px) rotate(${rotateDeg}deg)`;
+
+          // 뒤쪽 X / O 카드 부채꼴 연동 및 반대편 페이드
+          if (progress > 0) {
+            if (rightBack) {
+              rightBack.style.transform = `rotate(${13 + progress * 4}deg) translateX(${24 + progress * 6}px) translateY(${4 - progress * 2}px)`;
+              rightBack.style.opacity = '1';
+            }
+            if (leftBack) {
+              leftBack.style.transform = '';
+              leftBack.style.opacity = String(1 - intensity * 0.65);
+            }
+            card.style.backgroundColor = lerpColor('#FFFFFF', '#DDF9F5', intensity);
+            card.style.borderColor = lerpColor('#F3F4F6', '#8BECE0', intensity);
+            card.style.boxShadow = `0 8px 24px rgba(28, 227, 206, ${0.08 + intensity * 0.22})`;
+            if (qtext && stepIndex !== 4) {
+              qtext.style.color = lerpColor('#1F2937', '#00A896', intensity);
+            }
+            if (rmark) {
+              if (intensity > 0.12) {
+                rmark.classList.remove('hidden');
+                rmark.textContent = 'O';
+                rmark.style.color = '#00A896';
+                rmark.style.opacity = String(Math.min(1, (intensity - 0.1) * 1.3));
+              } else {
+                rmark.classList.add('hidden');
+              }
+            }
+          } else if (progress < 0) {
+            const absP = Math.abs(progress);
+            if (leftBack) {
+              leftBack.style.transform = `rotate(${-13 - absP * 4}deg) translateX(${-24 - absP * 6}px) translateY(${4 - absP * 2}px)`;
+              leftBack.style.opacity = '1';
+            }
+            if (rightBack) {
+              rightBack.style.transform = '';
+              rightBack.style.opacity = String(1 - intensity * 0.65);
+            }
+            card.style.backgroundColor = lerpColor('#FFFFFF', '#FAE3E3', intensity);
+            card.style.borderColor = lerpColor('#F3F4F6', '#F2B8B8', intensity);
+            card.style.boxShadow = `0 8px 24px rgba(220, 38, 38, ${0.08 + intensity * 0.14})`;
+            if (qtext && stepIndex !== 4) {
+              qtext.style.color = lerpColor('#1F2937', '#C82828', intensity);
+            }
+            if (rmark) {
+              if (intensity > 0.12) {
+                rmark.classList.remove('hidden');
+                rmark.textContent = 'X';
+                rmark.style.color = '#C82828';
+                rmark.style.opacity = String(Math.min(1, (intensity - 0.1) * 1.3));
+              } else {
+                rmark.classList.add('hidden');
+              }
+            }
+          } else {
+            card.style.backgroundColor = '';
+            card.style.borderColor = '';
+            card.style.boxShadow = '';
+            if (qtext) qtext.style.color = '';
+            if (rmark) rmark.classList.add('hidden');
+            if (leftBack) {
+              leftBack.style.transform = '';
+              leftBack.style.opacity = '';
+            }
+            if (rightBack) {
+              rightBack.style.transform = '';
+              rightBack.style.opacity = '';
+            }
+          }
+        };
+
+        card.addEventListener('pointerdown', (e) => {
+          if (state.activeStep !== stepIndex || state.isTransitioning) return;
+          isDragging = true;
+          startX = e.clientX;
+          currentDx = 0;
+          card.classList.remove('card-pop-in');
+          card.classList.add('dragging');
+          card.setPointerCapture(e.pointerId);
+        });
+
+        card.addEventListener('pointermove', (e) => {
+          if (!isDragging) return;
+          currentDx = e.clientX - startX;
+          applyDragVisuals(currentDx);
+        });
+
+        const onPointerEnd = (e) => {
+          if (!isDragging) return;
+          isDragging = false;
+          card.classList.remove('dragging');
+          if (card.hasPointerCapture(e.pointerId)) {
+            card.releasePointerCapture(e.pointerId);
+          }
+
+          const threshold = 62;
+          if (currentDx >= threshold) {
+            triggerSwipeChoice(stepIndex, true, true);
+          } else if (currentDx <= -threshold) {
+            triggerSwipeChoice(stepIndex, false, true);
+          } else {
+            // 임계치 미만일 경우 원래 위치와 색으로 부드럽게 복귀
+            card.style.transform = 'translateX(0px) rotate(0deg)';
+            card.style.backgroundColor = '';
+            card.style.borderColor = '';
+            card.style.boxShadow = '';
+            if (qtext) qtext.style.color = '';
+            if (rmark) {
+              rmark.style.opacity = '0';
+              rmark.classList.add('hidden');
+            }
+            if (leftBack) {
+              leftBack.style.transform = '';
+              leftBack.style.opacity = '';
+            }
+            if (rightBack) {
+              rightBack.style.transform = '';
+              rightBack.style.opacity = '';
+            }
+          }
+        };
+
+        card.addEventListener('pointerup', onPointerEnd);
+        card.addEventListener('pointercancel', onPointerEnd);
+      });
+    }
+
+    // =========================================================
+    // STEP 2-B: 가게 요청사항 '추가 요청사항' O 선택 시 입력 처리
+    // =========================================================
+    function confirmStoreCustomInput() {
+      const text = document.getElementById('storeCustomInput').value.trim();
+      state.storeCustomText = text;
+
+      const s0 = state.storeAnswers[0] ? '수저, 포크 O' : '수저, 포크 X';
+      const s1 = state.storeAnswers[1] ? '기본 반찬 O' : '기본 반찬 X';
+      const s2 = text ? `추가 요청(${text})` : '추가 요청 O';
+      completeStepAndAdvance(2, `${s0}, ${s1}, ${s2}`);
+    }
+
+    function backToStoreSwipe() {
+      clearHoldTimer();
+      state.storeMode = 'swipe';
+      state.storeSubIndex = 2;
+      document.getElementById('substep-badge-2').textContent = '3 / 3';
+      document.getElementById('store-input-mode').classList.add('hidden');
+      document.getElementById('store-swipe-mode').classList.remove('hidden');
+      resetSwipeCardVisual(2, STORE_SUB_QUESTIONS[2].question, false);
+      setTimeout(() => centerSection(2, true), 50);
+    }
+
+    // =========================================================
+    // STEP 3-B: 결제수단 X 선택 시 체크박스 UI
+    // =========================================================
+    function renderPaymentCheckboxes() {
+      const container = document.getElementById('paymentOptionsList');
+      if (!container) return;
+
+      container.classList.remove('has-selection');
+      container.innerHTML = PAYMENT_OPTIONS.map(opt => `
+        <button
+          type="button"
+          data-value="${opt}"
+          onclick="selectPaymentOption('${opt}', this)"
+          class="option-row w-full flex items-center gap-3 text-left cursor-pointer"
+        >
+          <span class="custom-checkbox">
+            <svg class="check-icon w-3.5 h-3.5 text-gray-900" fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
+            </svg>
+          </span>
+          <span class="option-label text-[14.5px] text-gray-800">${opt}</span>
+        </button>
+      `).join('');
+    }
+
+    function selectPaymentOption(value, btnEl) {
+      clearHoldTimer();
+      const container = document.getElementById('paymentOptionsList');
+      container.classList.add('has-selection');
+
+      container.querySelectorAll('.option-row').forEach(row => row.classList.remove('selected'));
+      btnEl.classList.add('selected');
+
+      state.paymentMethod = value;
+      state.isTransitioning = true;
+
+      holdTimer = setTimeout(() => {
+        holdTimer = null;
+        state.isTransitioning = false;
+        completeStepAndAdvance(3, value);
+      }, 2000);
+    }
+
+    function backToPaymentSwipe() {
+      clearHoldTimer();
+      state.paymentMode = 'swipe';
+      document.getElementById('payment-checkbox-mode').classList.add('hidden');
+      document.getElementById('payment-swipe-mode').classList.remove('hidden');
+      resetSwipeCardVisual(3, '지난 번 결제수단<br />(카카오페이) 그대로 사용', true);
+      setTimeout(() => centerSection(3, true), 50);
+    }
+
+    // =========================================================
+    // STEP 5: 영수증 계산 및 결제하기 활성화
+    // =========================================================
+    function updatePriceUI() {
+      const baseMenu = 38500;
+      const deliveryTip = 2000;
+      const fixedDiscounts = 3000; // 배달팁 할인 1,000 + BHC 할인 2,000
+      const couponDiscount = state.couponApplied ? 3000 : 0;
+      const totalDiscount = fixedDiscounts + couponDiscount;
+      const finalPrice = baseMenu + deliveryTip - totalDiscount;
+
+      document.getElementById('totalDiscountText').textContent = `-${totalDiscount.toLocaleString()}원`;
+      document.getElementById('couponReceiptText').textContent =
+        couponDiscount > 0 ? `-${couponDiscount.toLocaleString()}원` : '0원';
+      document.getElementById('finalReceiptPrice').textContent = `${finalPrice.toLocaleString()}원`;
+      document.getElementById('payButton').textContent = `${finalPrice.toLocaleString()}원 결제하기`;
+    }
+
+    function confirmReceiptAmount() {
+      state.receiptConfirmed = true;
+      state.completed[5] = true;
+
+      const finalPriceText = document.getElementById('finalReceiptPrice').textContent;
+      document.getElementById('summary-5').textContent = `결제금액 ${finalPriceText}`;
+
+      const confirmBtn = document.getElementById('confirmAmountBtn');
+      confirmBtn.classList.remove('bg-[#E8E7FB]', 'hover:bg-[#DDDDF9]', 'text-[#2B38E6]');
+      confirmBtn.classList.add('bg-[#2B38E6]', 'text-white');
+      document.getElementById('confirmAmountText').textContent = '금액 확인 완료 ✓';
+
+      document.getElementById('payButton').disabled = false;
+      showToast('결제하기 버튼이 활성화되었습니다!');
+    }
+
+    function handleDisabledPayClick() {
+      const payBtn = document.getElementById('payButton');
+      if (!payBtn.disabled) return;
+
+      if (state.highestUnlocked < 5) {
+        showToast('모든 주문 옵션을 먼저 선택해 주세요.');
+      } else {
+        openSection(5);
+        showToast("영수증에서 '금액을 확인했어요' 버튼을 눌러주세요.");
+      }
+    }
+
+    function openPaymentModal(e) {
+      if (e) e.stopPropagation();
+      const payBtn = document.getElementById('payButton');
+      if (payBtn.disabled) return;
+
+      const addrFull = state.address.detail
+        ? `${state.address.base} ${state.address.detail}`
+        : state.address.base;
+      const doorbellText = state.doorbellYes ? '도착 시 초인종 누르기 (O)' : '초인종 누르지 않기 (X)';
+      const extraStoreText = state.storeAnswers[2]
+        ? (state.storeCustomText ? `추가 요청(${state.storeCustomText})` : '추가 요청 O')
+        : '추가 요청 X';
+      const storeText = `${state.storeAnswers[0] ? '수저·포크 O' : '수저·포크 X'}, ${state.storeAnswers[1] ? '기본 반찬 O' : '기본 반찬 X'}, ${extraStoreText}`;
+      const couponText = state.couponApplied ? '3,000원 할인 쿠폰 적용 (O)' : '할인 쿠폰 미적용 (X)';
+      const finalPriceText = document.getElementById('finalReceiptPrice').textContent;
+
+      const summaryBox = document.getElementById('orderSummaryBox');
+      summaryBox.innerHTML = `
+        <div class="flex justify-between gap-2"><span class="text-gray-400 shrink-0">배달 주소</span><span class="font-semibold text-gray-800 text-right">${addrFull}</span></div>
+        <div class="flex justify-between gap-2"><span class="text-gray-400 shrink-0">배달 요청</span><span class="font-semibold text-gray-800 text-right">${doorbellText}</span></div>
+        <div class="flex justify-between gap-2"><span class="text-gray-400 shrink-0">가게 요청</span><span class="font-semibold text-gray-800 text-right">${storeText}</span></div>
+        <div class="flex justify-between gap-2"><span class="text-gray-400 shrink-0">결제 수단</span><span class="font-semibold text-gray-800 text-right">${state.paymentMethod || '-'}</span></div>
+        <div class="flex justify-between gap-2"><span class="text-gray-400 shrink-0">할인 쿠폰</span><span class="font-semibold text-gray-800 text-right">${couponText}</span></div>
+        <div class="flex justify-between gap-2 pt-1.5 border-t border-gray-200"><span class="text-gray-500 font-bold shrink-0">최종 결제</span><span class="font-extrabold text-[#2B38E6] text-right">${finalPriceText}</span></div>
+      `;
+
+      document.getElementById('completeModal').classList.remove('hidden');
+    }
+
+    // =========================================================
+    // 토스트 알림 & 전체 초기화
+    // =========================================================
+    let toastTimeout = null;
+    function showToast(message) {
+      const pill = document.getElementById('toastPill');
+      if (!pill) return;
+
+      pill.textContent = message;
+      pill.classList.remove('opacity-0', 'translate-y-2');
+      pill.classList.add('opacity-100', 'translate-y-0');
+
+      if (toastTimeout) clearTimeout(toastTimeout);
+      toastTimeout = setTimeout(() => {
+        pill.classList.remove('opacity-100', 'translate-y-0');
+        pill.classList.add('opacity-0', 'translate-y-2');
+      }, 2200);
+    }
+
+    function resetPrototype() {
+      clearHoldTimer();
+
+      state.activeStep = 0;
+      state.highestUnlocked = 0;
+      state.completed = [false, false, false, false, false, false];
+      state.address = {
+        base: '서울 서대문구 연세로50',
+        detail: '',
+        gate: '',
+        direction: ''
+      };
+      state.doorbellYes = null;
+      state.storeSubIndex = 0;
+      state.storeAnswers = [null, null, null];
+      state.storeMode = 'swipe';
+      state.storeCustomText = '';
+      state.paymentMode = 'swipe';
+      state.paymentMethod = '';
+      state.couponApplied = true;
+      state.receiptConfirmed = false;
+
+      ['detailAddressInput', 'gateCodeInput', 'directionInput', 'storeCustomInput'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.value = '';
+      });
+      for (let i = 0; i <= 5; i++) {
+        const sumEl = document.getElementById(`summary-${i}`);
+        if (sumEl) sumEl.textContent = '';
+      }
+
+      const confirmBtn = document.getElementById('confirmAmountBtn');
+      confirmBtn.classList.remove('bg-[#2B38E6]', 'text-white');
+      confirmBtn.classList.add('bg-[#E8E7FB]', 'hover:bg-[#DDDDF9]', 'text-[#2B38E6]');
+      document.getElementById('confirmAmountText').textContent = '금액을 확인했어요';
+
+      document.getElementById('payButton').disabled = true;
+      document.getElementById('completeModal').classList.add('hidden');
+
+      updatePriceUI();
+      openSection(0);
+    }
+
+    // 초기 실행
+    window.addEventListener('DOMContentLoaded', () => {
+      setupSwipeListeners();
+      updatePriceUI();
+
+      const resetBtn = document.getElementById('resetBtn');
+      if (resetBtn) {
+        resetBtn.addEventListener('click', () => {
+          resetPrototype();
+          showToast('주문 옵션이 초기화되었습니다.');
+        });
+      }
+
+      setTimeout(() => centerSection(0, false), 50);
+    });
+  </script>
+</body>
+</html>
